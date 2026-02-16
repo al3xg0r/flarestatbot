@@ -13,15 +13,9 @@ class CloudflareManager:
 
     @staticmethod
     async def validate_token(token):
-        """
-        Проверяет токен, пытаясь получить список зон.
-        Это надежнее, чем /user/tokens/verify, так как требует только прав Zone:Read.
-        """
         headers = CloudflareManager._get_headers(token)
         async with aiohttp.ClientSession() as session:
-            # Запрашиваем 1 зону, просто чтобы проверить код ответа
             async with session.get(f"{CF_API_URL}/zones?per_page=1", headers=headers) as resp:
-                # 200 OK означает, что токен валиден и имеет права
                 return resp.status == 200
 
     @staticmethod
@@ -40,7 +34,8 @@ class CloudflareManager:
     async def get_dns_records(token, zone_id):
         headers = CloudflareManager._get_headers(token)
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{CF_API_URL}/zones/{zone_id}/dns_records", headers=headers) as resp:
+            # Запрашиваем до 100 записей, чтобы не терять данные
+            async with session.get(f"{CF_API_URL}/zones/{zone_id}/dns_records?per_page=100", headers=headers) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     return data.get("result", [])

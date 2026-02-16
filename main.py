@@ -8,6 +8,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import LinkPreviewOptions
+from aiogram.enums import ParseMode  # ВАЖНО: Импорт для HTML
 from dotenv import load_dotenv
 from cf_api import CloudflareManager
 import db
@@ -40,20 +41,17 @@ async def get_zones_keyboard(token):
     zones = await CloudflareManager.get_zones(token)
     builder = InlineKeyboardBuilder()
     
-    # Если зон нет, но запрос прошел (вернулся пустой список)
     if zones is not None: 
         if not zones:
-            # Кнопка обновления, если зон пока нет (пустой аккаунт)
             builder.button(text="🔄 Обновить (Зон не найдено)", callback_data="refresh_zones")
         else:
             for zone in zones:
                 builder.button(text=f"🌐 {zone['name']}", callback_data=f"selzone_{zone['id']}")
             builder.button(text="🔄 Обновить", callback_data="refresh_zones")
     else:
-        # Если вернулся None (ошибка авторизации при получении зон)
         return None
     
-    builder.button(text="🚪 Выйти (Сброс токена)", callback_data="logout")
+    builder.button(text="🚪 Выйти", callback_data="logout")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -85,19 +83,22 @@ async def cmd_start(message: types.Message, state: FSMContext):
         if kb:
             await message.answer(f"Привет, {message.from_user.first_name}! Ваши домены:", reply_markup=kb)
         else:
-             # Если сохраненный токен перестал работать
              await message.answer("Ваш сохраненный токен устарел. Введите новый:")
              await state.set_state(Form.waiting_for_token)
     else:
         text = (
-            "👋 Привет! Это Cloudflare Manager.\n\n"
-            "Для работы мне нужен ваш **API Token**.\n"
+            "👋 Привет! Это <b>Cloudflare Manager</b>.\n\n"
+            "Для работы мне нужен ваш <b>API Token</b>.\n"
             "Создайте его здесь: https://dash.cloudflare.com/profile/api-tokens\n"
-            "Шаблон: **Edit Zone DNS**\n\n"
+            "Шаблон: <b>Edit Zone DNS</b>\n\n"
             "Отправьте токен сообщением:"
         )
-        # Отключаем превью ссылки
-        await message.answer(text, link_preview_options=LinkPreviewOptions(is_disabled=True))
+        # Включаем HTML и отключаем превью
+        await message.answer(
+            text, 
+            parse_mode=ParseMode.HTML,
+            link_preview_options=LinkPreviewOptions(is_disabled=True)
+        )
         await state.set_state(Form.waiting_for_token)
 
 @dp.message(Form.waiting_for_token)
@@ -114,11 +115,11 @@ async def process_token(message: types.Message, state: FSMContext):
         await message.answer("Ваши домены:", reply_markup=kb)
         await state.clear()
     else:
-        # Убрали ссылку и здесь на всякий случай
         await msg.edit_text(
-            "❌ Токен невалиден или у него нет прав на просмотр зон.\n"
-            "Убедитесь, что использовали шаблон **Edit Zone DNS**.\n"
+            "❌ Токен невалиден.\n"
+            "Убедитесь, что использовали шаблон <b>Edit Zone DNS</b>.\n"
             "Попробуйте еще раз:",
+            parse_mode=ParseMode.HTML
         )
 
 @dp.callback_query(F.data == "logout")
@@ -155,21 +156,36 @@ async def list_dns_handler(callback: types.CallbackQuery):
     token = await get_user_token(callback.from_user.id)
     if not token: return
 
-    zone_id = callback.data.split("_")[1]
-    records = await CloudflareManager.get_dns_records(token, zone_id)
-    
-    builder = InlineKeyboardBuilder()
-    count = 0
-    for rec in records:
-        if rec['type'] in ['A', 'CNAME']:
+    try:
+        zone_id = callback.data.split("_")[1]
+        records = await CloudflareManager.get_dns_records(token, zone_id)
+        
+        builder = InlineKeyboardBuilder()
+        count = 0
+        
+        # Фильтруем и ограничиваем (макс 30 кнопок, чтобы не вылететь)
+        filtered_records = [r for r in records if r['type'] in ['A', 'CNAME']]
+        
+        for rec in filtered_records[:30]:
             status = "☁️" if rec['proxied'] else "🌪"
-            builder.button(text=f"{status} {rec['name']} ({rec['content']})", callback_data=f"view_{zone_id}_{rec['id']}")
+            label = f"{status} {rec['name']} ({rec['content']})"
+            # Обрезаем слишком длинные надписи для кнопок
+            if len(label) > 30: 
+                label = label[:27] + "..."
+            builder.button(text=label, callback_data=f"view_{zone_id}_{rec['id']}")
             count += 1
-    
-    builder.button(text="🔙 Назад", callback_data=f"selzone_{zone_id}")
-    builder.adjust(1)
-    
-    await callback.message.edit_text(f"Найдено записей (A/CNAME): {count}", reply_markup=builder.as_markup())
+        
+        builder.button(text="🔙 Назад", callback_data=f"selzone_{zone_id}")
+        builder.adjust(1)
+        
+        msg_text = f"Найдено записей (A/CNAME): {len(filtered_records)}"
+        if len(filtered_records) > 30:
+            msg_text += "\n(Показаны первые 30)"
+        
+        await callback.message.edit_text(msg_text, reply_markup=builder.as_markup())
+    except Exception as e:
+        logging.error(f"Error in list_dns: {e}")
+        await callback.answer(f"Ошибка при загрузке: {e}", show_alert=True)
 
 @dp.callback_query(F.data.startswith("view_"))
 async def view_record_handler(callback: types.CallbackQuery):
@@ -192,7 +208,7 @@ async def view_record_handler(callback: types.CallbackQuery):
         f"<b>Content:</b> {record['content']}\n"
         f"<b>Proxied:</b> {'Да' if record['proxied'] else 'Нет'}"
     )
-    await callback.message.edit_text(info, reply_markup=get_record_keyboard(zone_id, rec_id, record['proxied']))
+    await callback.message.edit_text(info, reply_markup=get_record_keyboard(zone_id, rec_id, record['proxied']), parse_mode=ParseMode.HTML)
 
 @dp.callback_query(F.data.startswith("proxy_"))
 async def toggle_proxy_handler(callback: types.CallbackQuery):
@@ -215,7 +231,7 @@ async def toggle_proxy_handler(callback: types.CallbackQuery):
                 f"<b>Content:</b> {record['content']}\n"
                 f"<b>Proxied:</b> {'Да' if new_proxied else 'Нет'}"
             )
-            await callback.message.edit_text(info, reply_markup=get_record_keyboard(zone_id, rec_id, new_proxied))
+            await callback.message.edit_text(info, reply_markup=get_record_keyboard(zone_id, rec_id, new_proxied), parse_mode=ParseMode.HTML)
         else:
             await callback.answer(f"Ошибка CF: {res}", show_alert=True)
 
