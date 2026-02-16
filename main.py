@@ -8,7 +8,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import LinkPreviewOptions
-from aiogram.enums import ParseMode  # ВАЖНО: Импорт для HTML
+from aiogram.enums import ParseMode
 from dotenv import load_dotenv
 from cf_api import CloudflareManager
 import db
@@ -28,6 +28,8 @@ class Form(StatesGroup):
     waiting_for_new_ip = State()
     waiting_for_add_name = State()
     waiting_for_add_ip = State()
+    # Состояние для хранения текущей зоны, чтобы не передавать её в кнопках
+    in_zone_menu = State()
 
 # --- Вспомогательные функции ---
 
@@ -46,6 +48,7 @@ async def get_zones_keyboard(token):
             builder.button(text="🔄 Обновить (Зон не найдено)", callback_data="refresh_zones")
         else:
             for zone in zones:
+                # callback: selzone_{zone_id} (длина ок. 40 байт, влазит)
                 builder.button(text=f"🌐 {zone['name']}", callback_data=f"selzone_{zone['id']}")
             builder.button(text="🔄 Обновить", callback_data="refresh_zones")
     else:
@@ -55,21 +58,23 @@ async def get_zones_keyboard(token):
     builder.adjust(1)
     return builder.as_markup()
 
-def get_zone_menu_keyboard(zone_id):
+def get_zone_menu_keyboard():
+    # Кнопки больше не нужны ID зоны, она лежит в State
     builder = InlineKeyboardBuilder()
-    builder.button(text="📋 DNS Записи", callback_data=f"listdns_{zone_id}")
-    builder.button(text="➕ Добавить запись", callback_data=f"adddns_{zone_id}")
+    builder.button(text="📋 DNS Записи", callback_data="listdns")
+    builder.button(text="➕ Добавить запись", callback_data="adddns_start")
     builder.button(text="🔙 К списку доменов", callback_data="refresh_zones")
     builder.adjust(1)
     return builder.as_markup()
 
-def get_record_keyboard(zone_id, record_id, proxied):
+def get_record_keyboard(record_id, proxied):
     builder = InlineKeyboardBuilder()
     proxy_status = "🟢 ON" if proxied else "🔴 OFF"
-    builder.button(text=f"Proxy: {proxy_status}", callback_data=f"proxy_{zone_id}_{record_id}")
-    builder.button(text="✏️ Сменить IP", callback_data=f"editip_{zone_id}_{record_id}")
-    builder.button(text="❌ Удалить", callback_data=f"del_{zone_id}_{record_id}")
-    builder.button(text="🔙 Назад к записям", callback_data=f"listdns_{zone_id}")
+    # Теперь передаем только ID записи, зона берется из памяти
+    builder.button(text=f"Proxy: {proxy_status}", callback_data=f"proxy_{record_id}")
+    builder.button(text="✏️ Сменить IP", callback_data=f"editip_{record_id}")
+    builder.button(text="❌ Удалить", callback_data=f"del_{record_id}")
+    builder.button(text="🔙 Назад к записям", callback_data="listdns")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -77,6 +82,7 @@ def get_record_keyboard(zone_id, record_id, proxied):
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
+    await state.clear() # Сброс состояний при старте
     token = db.get_token(message.from_user.id)
     if token:
         kb = await get_zones_keyboard(token)
@@ -93,7 +99,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
             "Шаблон: <b>Edit Zone DNS</b>\n\n"
             "Отправьте токен сообщением:"
         )
-        # Включаем HTML и отключаем превью
         await message.answer(
             text, 
             parse_mode=ParseMode.HTML,
@@ -104,7 +109,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
 @dp.message(Form.waiting_for_token)
 async def process_token(message: types.Message, state: FSMContext):
     token = message.text.strip()
-    
     msg = await message.answer("⏳ Проверяю токен...")
     is_valid = await CloudflareManager.validate_token(token)
     
@@ -116,9 +120,7 @@ async def process_token(message: types.Message, state: FSMContext):
         await state.clear()
     else:
         await msg.edit_text(
-            "❌ Токен невалиден.\n"
-            "Убедитесь, что использовали шаблон <b>Edit Zone DNS</b>.\n"
-            "Попробуйте еще раз:",
+            "❌ Токен невалиден.\nУбедитесь, что использовали шаблон <b>Edit Zone DNS</b>.",
             parse_mode=ParseMode.HTML
         )
 
@@ -126,19 +128,16 @@ async def process_token(message: types.Message, state: FSMContext):
 async def logout_handler(callback: types.CallbackQuery, state: FSMContext):
     db.delete_user(callback.from_user.id)
     await state.clear()
-    await callback.message.edit_text(
-        "Вы вышли из системы. Введите новый токен для входа:",
-        reply_markup=None
-    )
+    await callback.message.edit_text("Вы вышли из системы. Введите новый токен:", reply_markup=None)
     await state.set_state(Form.waiting_for_token)
 
 # --- Хендлеры Управления ---
 
 @dp.callback_query(F.data == "refresh_zones")
-async def refresh_zones_handler(callback: types.CallbackQuery):
+async def refresh_zones_handler(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear() # Очищаем выбранную зону
     token = await get_user_token(callback.from_user.id)
-    if not token:
-        return await logout_handler(callback, None)
+    if not token: return await logout_handler(callback, state)
 
     kb = await get_zones_keyboard(token)
     if kb:
@@ -146,55 +145,73 @@ async def refresh_zones_handler(callback: types.CallbackQuery):
     else:
         await callback.answer("Ошибка получения зон", show_alert=True)
 
+# ВХОД В ЗОНУ: Сохраняем ID зоны в State
 @dp.callback_query(F.data.startswith("selzone_"))
-async def select_zone_handler(callback: types.CallbackQuery):
+async def select_zone_handler(callback: types.CallbackQuery, state: FSMContext):
     zone_id = callback.data.split("_")[1]
-    await callback.message.edit_text(f"Управление зоной:", reply_markup=get_zone_menu_keyboard(zone_id))
+    
+    # ВАЖНО: Сохраняем zone_id в память
+    await state.update_data(current_zone_id=zone_id)
+    
+    await callback.message.edit_text(f"Управление зоной:", reply_markup=get_zone_menu_keyboard())
 
-@dp.callback_query(F.data.startswith("listdns_"))
-async def list_dns_handler(callback: types.CallbackQuery):
+# Список DNS (берет zone_id из State)
+@dp.callback_query(F.data == "listdns")
+async def list_dns_handler(callback: types.CallbackQuery, state: FSMContext):
     token = await get_user_token(callback.from_user.id)
     if not token: return
 
+    # Получаем зону из памяти
+    data = await state.get_data()
+    zone_id = data.get("current_zone_id")
+    
+    if not zone_id:
+        await callback.answer("Сессия истекла. Выберите домен заново.", show_alert=True)
+        await refresh_zones_handler(callback, state)
+        return
+
     try:
-        zone_id = callback.data.split("_")[1]
         records = await CloudflareManager.get_dns_records(token, zone_id)
-        
         builder = InlineKeyboardBuilder()
-        count = 0
         
-        # Фильтруем и ограничиваем (макс 30 кнопок, чтобы не вылететь)
         filtered_records = [r for r in records if r['type'] in ['A', 'CNAME']]
         
+        # Лимит 30 кнопок
         for rec in filtered_records[:30]:
             status = "☁️" if rec['proxied'] else "🌪"
             label = f"{status} {rec['name']} ({rec['content']})"
-            # Обрезаем слишком длинные надписи для кнопок
-            if len(label) > 30: 
-                label = label[:27] + "..."
-            builder.button(text=label, callback_data=f"view_{zone_id}_{rec['id']}")
-            count += 1
+            if len(label) > 30: label = label[:27] + "..."
+            
+            # ВАЖНО: Callback теперь содержит только ID записи
+            builder.button(text=label, callback_data=f"view_{rec['id']}")
         
-        builder.button(text="🔙 Назад", callback_data=f"selzone_{zone_id}")
+        # Кнопка назад ведет в меню зоны (а не списка зон)
+        builder.button(text="🔙 Назад в меню зоны", callback_data=f"selzone_{zone_id}")
         builder.adjust(1)
         
         msg_text = f"Найдено записей (A/CNAME): {len(filtered_records)}"
-        if len(filtered_records) > 30:
-            msg_text += "\n(Показаны первые 30)"
+        if len(filtered_records) > 30: msg_text += "\n(Показаны первые 30)"
         
         await callback.message.edit_text(msg_text, reply_markup=builder.as_markup())
+        
     except Exception as e:
         logging.error(f"Error in list_dns: {e}")
-        await callback.answer(f"Ошибка при загрузке: {e}", show_alert=True)
+        await callback.answer(f"Ошибка: {e}", show_alert=True)
 
+# Просмотр записи
 @dp.callback_query(F.data.startswith("view_"))
-async def view_record_handler(callback: types.CallbackQuery):
+async def view_record_handler(callback: types.CallbackQuery, state: FSMContext):
     token = await get_user_token(callback.from_user.id)
     if not token: return
 
-    parts = callback.data.split("_")
-    zone_id, rec_id = parts[1], parts[2]
-    
+    rec_id = callback.data.split("_")[1]
+    data = await state.get_data()
+    zone_id = data.get("current_zone_id")
+
+    if not zone_id:
+        await callback.answer("Ошибка контекста. Начните сначала.", show_alert=True)
+        return
+
     records = await CloudflareManager.get_dns_records(token, zone_id)
     record = next((r for r in records if r['id'] == rec_id), None)
     
@@ -208,16 +225,19 @@ async def view_record_handler(callback: types.CallbackQuery):
         f"<b>Content:</b> {record['content']}\n"
         f"<b>Proxied:</b> {'Да' if record['proxied'] else 'Нет'}"
     )
-    await callback.message.edit_text(info, reply_markup=get_record_keyboard(zone_id, rec_id, record['proxied']), parse_mode=ParseMode.HTML)
+    # Передаем только rec_id
+    await callback.message.edit_text(info, reply_markup=get_record_keyboard(rec_id, record['proxied']), parse_mode=ParseMode.HTML)
 
+# Переключение прокси
 @dp.callback_query(F.data.startswith("proxy_"))
-async def toggle_proxy_handler(callback: types.CallbackQuery):
+async def toggle_proxy_handler(callback: types.CallbackQuery, state: FSMContext):
     token = await get_user_token(callback.from_user.id)
     if not token: return
 
-    parts = callback.data.split("_")
-    zone_id, rec_id = parts[1], parts[2]
-    
+    rec_id = callback.data.split("_")[1]
+    data = await state.get_data()
+    zone_id = data.get("current_zone_id")
+
     records = await CloudflareManager.get_dns_records(token, zone_id)
     record = next((r for r in records if r['id'] == rec_id), None)
     
@@ -231,14 +251,16 @@ async def toggle_proxy_handler(callback: types.CallbackQuery):
                 f"<b>Content:</b> {record['content']}\n"
                 f"<b>Proxied:</b> {'Да' if new_proxied else 'Нет'}"
             )
-            await callback.message.edit_text(info, reply_markup=get_record_keyboard(zone_id, rec_id, new_proxied), parse_mode=ParseMode.HTML)
+            await callback.message.edit_text(info, reply_markup=get_record_keyboard(rec_id, new_proxied), parse_mode=ParseMode.HTML)
         else:
             await callback.answer(f"Ошибка CF: {res}", show_alert=True)
 
+# Редактирование IP
 @dp.callback_query(F.data.startswith("editip_"))
 async def edit_ip_start(callback: types.CallbackQuery, state: FSMContext):
-    parts = callback.data.split("_")
-    await state.update_data(zone_id=parts[1], rec_id=parts[2])
+    rec_id = callback.data.split("_")[1]
+    await state.update_data(editing_rec_id=rec_id) # Сохраняем ID редактируемой записи
+    
     await callback.message.answer("Введите новый IP адрес:")
     await state.set_state(Form.waiting_for_new_ip)
     await callback.answer()
@@ -249,7 +271,8 @@ async def edit_ip_finish(message: types.Message, state: FSMContext):
     if not token: return
 
     data = await state.get_data()
-    zone_id, rec_id = data['zone_id'], data['rec_id']
+    zone_id = data.get("current_zone_id")
+    rec_id = data.get("editing_rec_id")
     new_ip = message.text.strip()
     
     records = await CloudflareManager.get_dns_records(token, zone_id)
@@ -262,20 +285,20 @@ async def edit_ip_finish(message: types.Message, state: FSMContext):
         else:
             await message.answer(f"❌ Ошибка: {res.get('errors')}")
     
-    await state.clear()
-    await message.answer("Меню зоны:", reply_markup=get_zone_menu_keyboard(zone_id))
+    # Возвращаемся в состояние меню, но сохраняем zone_id
+    await state.set_state(None) # Сброс конкретного стейта ввода, но данные остаются
+    await message.answer("Меню зоны:", reply_markup=get_zone_menu_keyboard())
 
-@dp.callback_query(F.data.startswith("adddns_"))
+# Добавление записи
+@dp.callback_query(F.data == "adddns_start")
 async def add_dns_start(callback: types.CallbackQuery, state: FSMContext):
-    zone_id = callback.data.split("_")[1]
-    await state.update_data(zone_id=zone_id)
     await callback.message.answer("Введите имя (например: app):")
     await state.set_state(Form.waiting_for_add_name)
     await callback.answer()
 
 @dp.message(Form.waiting_for_add_name)
 async def add_dns_name(message: types.Message, state: FSMContext):
-    await state.update_data(name=message.text.strip())
+    await state.update_data(new_rec_name=message.text.strip())
     await message.answer("Введите IP адрес:")
     await state.set_state(Form.waiting_for_add_ip)
 
@@ -285,26 +308,33 @@ async def add_dns_ip(message: types.Message, state: FSMContext):
     if not token: return
 
     data = await state.get_data()
-    res = await CloudflareManager.add_record(token, data['zone_id'], data['name'], message.text.strip())
+    zone_id = data.get("current_zone_id")
+    name = data.get("new_rec_name")
+    ip = message.text.strip()
+    
+    res = await CloudflareManager.add_record(token, zone_id, name, ip)
     
     if res.get("success"):
         await message.answer(f"✅ Запись добавлена!")
     else:
         await message.answer(f"❌ Ошибка: {res.get('errors')}")
     
-    await state.clear()
-    await message.answer("Меню зоны:", reply_markup=get_zone_menu_keyboard(data['zone_id']))
+    await state.set_state(None)
+    await message.answer("Меню зоны:", reply_markup=get_zone_menu_keyboard())
 
+# Удаление
 @dp.callback_query(F.data.startswith("del_"))
-async def delete_record_handler(callback: types.CallbackQuery):
+async def delete_record_handler(callback: types.CallbackQuery, state: FSMContext):
     token = await get_user_token(callback.from_user.id)
-    parts = callback.data.split("_")
-    res = await CloudflareManager.delete_record(token, parts[1], parts[2])
+    rec_id = callback.data.split("_")[1]
+    data = await state.get_data()
+    zone_id = data.get("current_zone_id")
+    
+    res = await CloudflareManager.delete_record(token, zone_id, rec_id)
     
     if res.get("success"):
         await callback.answer("Удалено")
-        callback.data = f"listdns_{parts[1]}"
-        await list_dns_handler(callback)
+        await list_dns_handler(callback, state)
     else:
         await callback.answer("Ошибка удаления", show_alert=True)
 
