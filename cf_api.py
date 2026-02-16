@@ -1,4 +1,5 @@
 import aiohttp
+import logging
 
 CF_API_URL = "https://api.cloudflare.com/client/v4"
 
@@ -12,14 +13,16 @@ class CloudflareManager:
 
     @staticmethod
     async def validate_token(token):
-        """Проверяет токен, пытаясь получить детали пользователя"""
+        """
+        Проверяет токен, пытаясь получить список зон.
+        Это надежнее, чем /user/tokens/verify, так как требует только прав Zone:Read.
+        """
         headers = CloudflareManager._get_headers(token)
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{CF_API_URL}/user/tokens/verify", headers=headers) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    return data.get("result", {}).get("status") == "active"
-                return False
+            # Запрашиваем 1 зону, просто чтобы проверить код ответа
+            async with session.get(f"{CF_API_URL}/zones?per_page=1", headers=headers) as resp:
+                # 200 OK означает, что токен валиден и имеет права
+                return resp.status == 200
 
     @staticmethod
     async def get_zones(token):
@@ -29,7 +32,9 @@ class CloudflareManager:
                 if resp.status == 200:
                     data = await resp.json()
                     return data.get("result", [])
-                return []
+                else:
+                    logging.error(f"Error getting zones: {resp.status}")
+                    return []
 
     @staticmethod
     async def get_dns_records(token, zone_id):
