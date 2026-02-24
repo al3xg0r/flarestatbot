@@ -19,6 +19,30 @@ class CloudflareManager:
                 return resp.status == 200
 
     @staticmethod
+    async def get_accounts(token):
+        """Получение списка аккаунтов (нужно для создания новой зоны)"""
+        headers = CloudflareManager._get_headers(token)
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{CF_API_URL}/accounts", headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get("result", [])
+                return []
+
+    @staticmethod
+    async def add_zone(token, account_id, zone_name):
+        """Добавление нового домена"""
+        headers = CloudflareManager._get_headers(token)
+        payload = {
+            "name": zone_name,
+            "account": {"id": account_id},
+            "type": "full"
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{CF_API_URL}/zones", headers=headers, json=payload) as resp:
+                return await resp.json()
+
+    @staticmethod
     async def get_zones(token):
         headers = CloudflareManager._get_headers(token)
         async with aiohttp.ClientSession() as session:
@@ -34,7 +58,6 @@ class CloudflareManager:
     async def get_dns_records(token, zone_id):
         headers = CloudflareManager._get_headers(token)
         async with aiohttp.ClientSession() as session:
-            # Запрашиваем до 100 записей, чтобы не терять данные
             async with session.get(f"{CF_API_URL}/zones/{zone_id}/dns_records?per_page=100", headers=headers) as resp:
                 if resp.status == 200:
                     data = await resp.json()

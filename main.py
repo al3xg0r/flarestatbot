@@ -12,7 +12,7 @@ from aiogram.enums import ParseMode
 from dotenv import load_dotenv
 from cf_api import CloudflareManager
 import db
-from locales import t  # Импортируем переводчик
+from locales import t
 
 # Настройка
 load_dotenv()
@@ -29,6 +29,7 @@ class Form(StatesGroup):
     waiting_for_new_ip = State()
     waiting_for_add_name = State()
     waiting_for_add_ip = State()
+    waiting_for_new_domain = State() # Новое состояние
     in_zone_menu = State()
 
 # --- Вспомогательные функции ---
@@ -36,7 +37,6 @@ class Form(StatesGroup):
 async def get_user_token(user_id, lang, message: types.Message = None):
     token = db.get_token(user_id)
     if not token and message:
-        # Для неавторизованных используем переданный язык
         await message.answer(t("start_auth", lang), parse_mode=ParseMode.HTML, link_preview_options=LinkPreviewOptions(is_disabled=True))
     return token
 
@@ -51,6 +51,9 @@ async def get_zones_keyboard(token, lang):
             for zone in zones:
                 builder.button(text=f"🌐 {zone['name']}", callback_data=f"selzone_{zone['id']}")
             builder.button(text=t("btn_refresh", lang), callback_data="refresh_zones")
+            
+        # Кнопка добавления домена всегда доступна в главном меню
+        builder.button(text=t("btn_add_domain", lang), callback_data="adddomain_start")
     else:
         return None
     
@@ -122,6 +125,47 @@ async def logout_handler(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.edit_text(t("logout_msg", lang), reply_markup=None)
     await state.set_state(Form.waiting_for_token)
+
+# --- Добавление Домена (Новое) ---
+
+@dp.callback_query(F.data == "adddomain_start")
+async def add_domain_start(callback: types.CallbackQuery, state: FSMContext):
+    lang = callback.from_user.language_code
+    await callback.message.answer(t("enter_domain_name", lang))
+    await state.set_state(Form.waiting_for_new_domain)
+    await callback.answer()
+
+@dp.message(Form.waiting_for_new_domain)
+async def add_domain_finish(message: types.Message, state: FSMContext):
+    lang = message.from_user.language_code
+    token = await get_user_token(message.from_user.id, lang, message)
+    if not token: return
+
+    domain_name = message.text.strip()
+    
+    # 1. Получаем Account ID
+    accounts = await CloudflareManager.get_accounts(token)
+    if not accounts:
+        # Если пусто, значит у токена нет нужных прав
+        await message.answer(t("error_account", lang))
+        await state.set_state(None)
+        return
+        
+    account_id = accounts[0]['id'] # Берем первый доступный аккаунт
+    
+    # 2. Добавляем зону
+    res = await CloudflareManager.add_zone(token, account_id, domain_name)
+    
+    if res.get("success"):
+        await message.answer(t("domain_added", lang, zone=domain_name))
+    else:
+        await message.answer(t("error_generic", lang, error=res.get('errors')))
+        
+    await state.set_state(None)
+    # Возвращаем меню с обновленным списком
+    kb = await get_zones_keyboard(token, lang)
+    if kb:
+        await message.answer(t("welcome_back", lang, name=message.from_user.first_name), reply_markup=kb)
 
 # --- Хендлеры Управления ---
 

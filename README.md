@@ -10,7 +10,8 @@
 
 * **Multi-User Support:** Built on SQLite, allowing multiple users to use the bot simultaneously with their own accounts.
 * **Secure:** API Tokens are stored locally in the database and are never exposed in logs or config files.
-* **Multi-Domain Management:** Automatically fetches all zones (domains) available to your token.
+* **Domain Management:** * ➕ **Add new domains (zones)** directly from Telegram.
+    * Automatically fetches all zones available to your token.
 * **DNS Management:**
     * View all A/CNAME records.
     * ✏️ Edit IP addresses.
@@ -95,13 +96,18 @@
 
 ## 🔑 How to get Cloudflare Token?
 
-To use the bot, you need to generate an API Token with **Edit Zone DNS** permissions.
+To fully use the bot (including adding new domains), you need to create a **Custom Token**.
 
 1.  Go to [Cloudflare API Tokens](https://dash.cloudflare.com/profile/api-tokens).
 2.  Click **Create Token**.
-3.  Use the **Edit Zone DNS** template.
-4.  Set **Zone Resources** to `Include -> All zones`.
-5.  Copy the token and send it to the bot.
+3.  Scroll to the bottom and click **Get started** in the **Custom Token** section.
+4.  Configure the following **Permissions**:
+    * `Zone` -> `Zone` -> `Edit`
+    * `Zone` -> `DNS` -> `Edit`
+    * `Account` -> `Account Settings` -> `Read`
+5.  Set **Zone Resources** to `Include -> All zones`.
+6.  Click **Continue to summary** -> **Create Token**.
+7.  Copy the token and send it to the bot.
 
 ## 🤝 Contributing
 

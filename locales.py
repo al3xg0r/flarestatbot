@@ -1,10 +1,7 @@
-# Словари переводов
-# Ключи: ru (Русский), en (English - default)
-
 MESSAGES = {
     "start_auth": {
-        "ru": "👋 <b>NexusDNS Manager</b>\n\nДля работы требуется <b>API Token</b>.\nСоздайте его здесь: https://dash.cloudflare.com/profile/api-tokens\nШаблон: <b>Edit Zone DNS</b>\n\nОтправьте токен сообщением:",
-        "en": "👋 <b>NexusDNS Manager</b>\n\nTo proceed, please provide your <b>API Token</b>.\nCreate it here: https://dash.cloudflare.com/profile/api-tokens\nTemplate: <b>Edit Zone DNS</b>\n\nSend the token as a message:"
+        "ru": "👋 <b>Flare Stat Manager</b>\n\nДля работы требуется <b>API Token</b>.\nСоздайте его здесь: https://dash.cloudflare.com/profile/api-tokens\n\n⚠️ <b>Важно:</b> Чтобы бот мог добавлять домены, создайте Custom Token с правами:\n- <code>Zone: Edit</code>\n- <code>DNS: Edit</code>\n- <code>Account Settings: Read</code>\n\nОтправьте токен сообщением:",
+        "en": "👋 <b>Flare Stat Manager</b>\n\nTo proceed, please provide your <b>API Token</b>.\nCreate it here: https://dash.cloudflare.com/profile/api-tokens\n\n⚠️ <b>Important:</b> To add new domains, create a Custom Token with permissions:\n- <code>Zone: Edit</code>\n- <code>DNS: Edit</code>\n- <code>Account Settings: Read</code>\n\nSend the token as a message:"
     },
     "token_checking": {
         "ru": "⏳ Проверяю токен...",
@@ -15,8 +12,8 @@ MESSAGES = {
         "en": "✅ Token accepted! Loading zones..."
     },
     "token_invalid": {
-        "ru": "❌ Токен невалиден.\nУбедитесь, что использовали шаблон <b>Edit Zone DNS</b>.",
-        "en": "❌ Invalid token.\nPlease ensure you used the <b>Edit Zone DNS</b> template."
+        "ru": "❌ Токен невалиден или не имеет нужных прав.",
+        "en": "❌ Invalid token or insufficient permissions."
     },
     "welcome_back": {
         "ru": "Рады видеть вас снова, {name}! Ваши домены:",
@@ -103,8 +100,8 @@ MESSAGES = {
         "en": "🔙 Back to Domains"
     },
     "btn_back_menu": {
-        "ru": "🔙 Назад в меню зоны",
-        "en": "🔙 Back to Zone Menu"
+        "ru": "🔙 Назад в меню",
+        "en": "🔙 Back to Menu"
     },
     "btn_edit_ip": {
         "ru": "✏️ Сменить IP",
@@ -117,15 +114,26 @@ MESSAGES = {
     "btn_back_list": {
         "ru": "🔙 Назад к записям",
         "en": "🔙 Back to List"
+    },
+    "btn_add_domain": {
+        "ru": "➕ Добавить домен",
+        "en": "➕ Add Domain"
+    },
+    "enter_domain_name": {
+        "ru": "Введите имя нового домена (например: example.com):",
+        "en": "Enter the new domain name (e.g., example.com):"
+    },
+    "domain_added": {
+        "ru": "✅ Домен {zone} успешно добавлен!",
+        "en": "✅ Domain {zone} added successfully!"
+    },
+    "error_account": {
+        "ru": "❌ Ошибка: У токена нет прав на просмотр аккаунта (Account Settings: Read) или создание зон (Zone: Edit).",
+        "en": "❌ Error: Token lacks Account Settings: Read or Zone: Edit permissions."
     }
 }
 
 def t(key, lang_code, **kwargs):
-    """
-    Возвращает перевод по ключу.
-    Если язык 'ru', возвращает русский.
-    Во всех остальных случаях (en, de, uk, None) возвращает английский.
-    """
     lang = 'ru' if lang_code == 'ru' else 'en'
     text = MESSAGES.get(key, {}).get(lang, MESSAGES.get(key, {}).get('en', key))
     if kwargs:
