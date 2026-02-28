@@ -36,8 +36,8 @@ MESSAGES = {
         "en": "Session expired. Please select the domain again."
     },
     "records_found": {
-        "ru": "Найдено записей (A/CNAME): {count}",
-        "en": "Records found (A/CNAME): {count}"
+        "ru": "Найдено записей: {count}",
+        "en": "Records found: {count}"
     },
     "records_found_limit": {
         "ru": "\n(Показаны первые 30)",
@@ -48,12 +48,12 @@ MESSAGES = {
         "en": "Record not found"
     },
     "enter_new_ip": {
-        "ru": "Введите новый IP адрес:",
-        "en": "Enter the new IP address:"
+        "ru": "Введите новое значение (IP, текст и т.д.):",
+        "en": "Enter the new value (IP, text, etc.):"
     },
     "ip_changed": {
-        "ru": "✅ IP изменен на {ip}",
-        "en": "✅ IP changed to {ip}"
+        "ru": "✅ Значение изменено на {ip}",
+        "en": "✅ Value changed to {ip}"
     },
     "enter_name": {
         "ru": "Введите имя (например: app):",
@@ -104,8 +104,8 @@ MESSAGES = {
         "en": "🔙 Back to Menu"
     },
     "btn_edit_ip": {
-        "ru": "✏️ Сменить IP",
-        "en": "✏️ Edit IP"
+        "ru": "✏️ Изменить значение",
+        "en": "✏️ Edit Content"
     },
     "btn_delete": {
         "ru": "❌ Удалить",

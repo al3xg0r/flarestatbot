@@ -20,7 +20,6 @@ class CloudflareManager:
 
     @staticmethod
     async def get_accounts(token):
-        """Получение списка аккаунтов (нужно для создания новой зоны)"""
         headers = CloudflareManager._get_headers(token)
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{CF_API_URL}/accounts", headers=headers) as resp:
@@ -31,7 +30,6 @@ class CloudflareManager:
 
     @staticmethod
     async def add_zone(token, account_id, zone_name):
-        """Добавление нового домена"""
         headers = CloudflareManager._get_headers(token)
         payload = {
             "name": zone_name,
@@ -78,7 +76,7 @@ class CloudflareManager:
             "name": record_data['name'],
             "content": record_data['content'],
             "proxied": not current_state,
-            "ttl": record_data['ttl']
+            "ttl": record_data.get('ttl', 1) # Защита от отсутствия ttl
         }
         return await CloudflareManager.update_record(token, zone_id, record_id, payload)
 
@@ -88,8 +86,8 @@ class CloudflareManager:
             "type": record_data['type'],
             "name": record_data['name'],
             "content": new_ip,
-            "proxied": record_data['proxied'],
-            "ttl": record_data['ttl']
+            "proxied": record_data.get('proxied', False), # Защита от KeyError
+            "ttl": record_data.get('ttl', 1)
         }
         return await CloudflareManager.update_record(token, zone_id, record_id, payload)
 

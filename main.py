@@ -29,7 +29,7 @@ class Form(StatesGroup):
     waiting_for_new_ip = State()
     waiting_for_add_name = State()
     waiting_for_add_ip = State()
-    waiting_for_new_domain = State() # Новое состояние
+    waiting_for_new_domain = State()
     in_zone_menu = State()
 
 # --- Вспомогательные функции ---
@@ -52,7 +52,6 @@ async def get_zones_keyboard(token, lang):
                 builder.button(text=f"🌐 {zone['name']}", callback_data=f"selzone_{zone['id']}")
             builder.button(text=t("btn_refresh", lang), callback_data="refresh_zones")
             
-        # Кнопка добавления домена всегда доступна в главном меню
         builder.button(text=t("btn_add_domain", lang), callback_data="adddomain_start")
     else:
         return None
@@ -126,7 +125,7 @@ async def logout_handler(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text(t("logout_msg", lang), reply_markup=None)
     await state.set_state(Form.waiting_for_token)
 
-# --- Добавление Домена (Новое) ---
+# --- Добавление Домена ---
 
 @dp.callback_query(F.data == "adddomain_start")
 async def add_domain_start(callback: types.CallbackQuery, state: FSMContext):
@@ -143,17 +142,13 @@ async def add_domain_finish(message: types.Message, state: FSMContext):
 
     domain_name = message.text.strip()
     
-    # 1. Получаем Account ID
     accounts = await CloudflareManager.get_accounts(token)
     if not accounts:
-        # Если пусто, значит у токена нет нужных прав
         await message.answer(t("error_account", lang))
         await state.set_state(None)
         return
         
-    account_id = accounts[0]['id'] # Берем первый доступный аккаунт
-    
-    # 2. Добавляем зону
+    account_id = accounts[0]['id']
     res = await CloudflareManager.add_zone(token, account_id, domain_name)
     
     if res.get("success"):
@@ -162,7 +157,6 @@ async def add_domain_finish(message: types.Message, state: FSMContext):
         await message.answer(t("error_generic", lang, error=res.get('errors')))
         
     await state.set_state(None)
-    # Возвращаем меню с обновленным списком
     kb = await get_zones_keyboard(token, lang)
     if kb:
         await message.answer(t("welcome_back", lang, name=message.from_user.first_name), reply_markup=kb)
@@ -207,19 +201,22 @@ async def list_dns_handler(callback: types.CallbackQuery, state: FSMContext):
         records = await CloudflareManager.get_dns_records(token, zone_id)
         builder = InlineKeyboardBuilder()
         
-        filtered_records = [r for r in records if r['type'] in ['A', 'CNAME']]
-        
-        for rec in filtered_records[:30]:
-            status = "☁️" if rec['proxied'] else "🌪"
-            label = f"{status} {rec['name']} ({rec['content']})"
+        # УБРАН ФИЛЬТР. Выводим ВСЕ типы записей
+        for rec in records[:30]:
+            is_proxied = rec.get('proxied', False)
+            status = "☁️" if is_proxied else "🌪"
+            
+            # В кнопку добавляем тип записи: [TXT], [A] и т.д.
+            label = f"[{rec['type']}] {status} {rec['name']} ({rec['content']})"
             if len(label) > 30: label = label[:27] + "..."
+            
             builder.button(text=label, callback_data=f"view_{rec['id']}")
         
         builder.button(text=t("btn_back_menu", lang), callback_data=f"selzone_{zone_id}")
         builder.adjust(1)
         
-        msg_text = t("records_found", lang, count=len(filtered_records))
-        if len(filtered_records) > 30: msg_text += t("records_found_limit", lang)
+        msg_text = t("records_found", lang, count=len(records))
+        if len(records) > 30: msg_text += t("records_found_limit", lang)
         
         await callback.message.edit_text(msg_text, reply_markup=builder.as_markup())
         
@@ -248,13 +245,14 @@ async def view_record_handler(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer(t("record_not_found", lang), show_alert=True)
         return
 
+    is_proxied = record.get('proxied', False)
     info = (
         f"<b>Type:</b> {record['type']}\n"
         f"<b>Name:</b> {record['name']}\n"
         f"<b>Content:</b> {record['content']}\n"
-        f"<b>Proxied:</b> {'Да' if record['proxied'] else 'Нет'}"
+        f"<b>Proxied:</b> {'Да' if is_proxied else 'Нет'}"
     )
-    await callback.message.edit_text(info, reply_markup=get_record_keyboard(rec_id, record['proxied'], lang), parse_mode=ParseMode.HTML)
+    await callback.message.edit_text(info, reply_markup=get_record_keyboard(rec_id, is_proxied, lang), parse_mode=ParseMode.HTML)
 
 @dp.callback_query(F.data.startswith("proxy_"))
 async def toggle_proxy_handler(callback: types.CallbackQuery, state: FSMContext):
@@ -270,9 +268,10 @@ async def toggle_proxy_handler(callback: types.CallbackQuery, state: FSMContext)
     record = next((r for r in records if r['id'] == rec_id), None)
     
     if record:
-        res = await CloudflareManager.toggle_proxy(token, zone_id, rec_id, record['proxied'], record)
+        current_proxied = record.get('proxied', False)
+        res = await CloudflareManager.toggle_proxy(token, zone_id, rec_id, current_proxied, record)
         if res.get("success"):
-            new_proxied = not record['proxied']
+            new_proxied = not current_proxied
             info = (
                 f"<b>Type:</b> {record['type']}\n"
                 f"<b>Name:</b> {record['name']}\n"
@@ -281,7 +280,9 @@ async def toggle_proxy_handler(callback: types.CallbackQuery, state: FSMContext)
             )
             await callback.message.edit_text(info, reply_markup=get_record_keyboard(rec_id, new_proxied, lang), parse_mode=ParseMode.HTML)
         else:
-            await callback.answer(t("error_generic", lang, error=res), show_alert=True)
+            # Cloudflare сам вернет красивую ошибку, если запись нельзя проксировать
+            error_msg = res.get('errors')[0]['message'] if res.get('errors') else str(res)
+            await callback.answer(t("error_generic", lang, error=error_msg), show_alert=True)
 
 @dp.callback_query(F.data.startswith("editip_"))
 async def edit_ip_start(callback: types.CallbackQuery, state: FSMContext):
@@ -312,7 +313,8 @@ async def edit_ip_finish(message: types.Message, state: FSMContext):
         if res.get("success"):
             await message.answer(t("ip_changed", lang, ip=new_ip))
         else:
-            await message.answer(t("error_generic", lang, error=res.get('errors')))
+            error_msg = res.get('errors')[0]['message'] if res.get('errors') else str(res)
+            await message.answer(t("error_generic", lang, error=error_msg))
     
     await state.set_state(None)
     await message.answer(t("zone_menu_title", lang), reply_markup=get_zone_menu_keyboard(lang))
@@ -347,7 +349,8 @@ async def add_dns_ip(message: types.Message, state: FSMContext):
     if res.get("success"):
         await message.answer(t("record_added", lang))
     else:
-        await message.answer(t("error_generic", lang, error=res.get('errors')))
+        error_msg = res.get('errors')[0]['message'] if res.get('errors') else str(res)
+        await message.answer(t("error_generic", lang, error=error_msg))
     
     await state.set_state(None)
     await message.answer(t("zone_menu_title", lang), reply_markup=get_zone_menu_keyboard(lang))
