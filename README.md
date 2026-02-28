@@ -13,9 +13,9 @@
 * **Domain Management:** * ➕ **Add new domains (zones)** directly from Telegram.
     * Automatically fetches all zones available to your token.
 * **DNS Management:**
-    * View all A/CNAME records.
-    * ✏️ Edit IP addresses.
-    * ☁️ Toggle Proxy status (Orange/Grey cloud).
+    * 📋 **View all DNS record types** (A, CNAME, TXT, MX, NS, etc.).
+    * ✏️ Edit record content (IP addresses, text values, targets).
+    * ☁️ Toggle Proxy status (Orange/Grey cloud) for supported records.
     * ➕ Add new records.
     * ❌ Delete records.
 * **Smart UX:** Caches Zone IDs for faster navigation; handles Telegram button limits automatically.
