@@ -3,7 +3,7 @@ main = "src/index.js"
 compatibility_date = "2024-01-01"
 
 [vars]
-BOT_TOKEN = "8540371241:AAHg_EA7X3JqH-VEmuFdeuwOjFUIgfLRe30"
+# Здесь оставляем только НЕ ПРИВАТНЫЕ переменные (например, ID базы)
 
 [[d1_databases]]
 binding = "DB"
