@@ -1,0 +1,11 @@
+name = "flarestatbot"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+BOT_TOKEN = "8540371241:AAHg_EA7X3JqH-VEmuFdeuwOjFUIgfLRe30"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "flarestat_db"
+database_id = "adf9d292-592f-4ec2-b802-199ffcdb707e"
