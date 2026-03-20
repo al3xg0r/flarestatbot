@@ -54,7 +54,7 @@
 
 5.  **Set Webhook:**
     ```bash
-    curl -X POST "[https://api.telegram.org/bot](https://api.telegram.org/bot)<YOUR_TOKEN>/setWebhook?url=https://<YOUR_WORKER>.<YOUR_SUBDOMAIN>.workers.dev"
+    curl -X POST "https://api.telegram.org/bot<YOUR_TOKEN>/setWebhook?url=https://<YOUR_WORKER>.<YOUR_SUBDOMAIN>.workers.dev"
     ```
 
 ## 📄 License
