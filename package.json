@@ -1,19 +1,17 @@
 {
   "name": "flarestatbot",
-  "version": "1.0.0",
-  "main": "index.js",
+  "version": "2.0.0",
+  "description": "Cloudflare DNS Manager Telegram Bot — Serverless on Cloudflare Workers",
+  "main": "src/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute flarestat_db --remote --file=./schema.sql"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "dependencies": {
-    "@cloudflare/workers-types": "^4.20260317.1",
-    "grammy": "^1.41.1"
+    "grammy": "^1.31.0"
   },
   "devDependencies": {
-    "wrangler": "^4.75.0"
+    "wrangler": "^3.0.0"
   }
 }
